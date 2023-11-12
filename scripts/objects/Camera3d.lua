@@ -213,7 +213,7 @@ local function prepareRender(self)
     love.graphics.origin()
     love.graphics.clear()
     love.graphics.setDepthMode("less",true)
-    love.graphics.setMeshCullMode("none") --TODO: add backface culling?
+    love.graphics.setMeshCullMode("back") --TODO: add backface culling?
     --love.graphics.setDefaultFilter( "linear", "linear", 1 )  --TODO: does nothing, figure out how to set this up later
     love.graphics.setColor(1.0,1.0,1.0,1.0)
     return oldComparemode, oldWrite, oldCull
