@@ -1,0 +1,49 @@
+{
+    "id": "k3d", 
+    "config" :
+    {
+        "model_path" : "/assets/models/",
+        "shader_path" : "/assets/scripts/shaders3d",
+        //Please dont touch these if you dont know what your doing. you're gonna corrupt the vertex data
+        
+        //Vertex format passed to `love.graphics.newModel`
+        "VERTEX_FORMAT" :
+        [ 
+            ["VertexPosition", "float", 3],
+            ["VertexTexCoord", "float", 2],
+            ["VertexNormal", "float", 3],
+            ["VertexColor", "byte", 4],
+            
+            ["VertexBarycenter", "float", 3]
+        ],
+
+        //used to construct vertex cdef. should list out VERTEX_FORMAT values sequentially with a string being this field's name
+        //and a lua function returnin values. data is the vertex data at this value, index is the vextex's index in load order
+        "VERTEX_DATAMAP" : 
+        [
+            //VertexPosition
+            ["x", "function(data, index) return data or 0 end"],
+            ["y", "function(data, index) return data or 0 end"],
+            ["z", "function(data, index) return data or 0 end"],
+            //VertexTexCoord
+            ["u", "function(data, index) return data or 0 end"],
+            ["v", "function(data, index) return data or 0 end"],
+            //VertexNormal
+            ["nx", "function(data, index) return data or 0 end"],
+            ["ny", "function(data, index) return data or 0 end"],
+            ["nz", "function(data, index) return data or 0 end"],
+            //VertexColor
+            ["r", "function(data, index) return (data or 0)*255 end"],
+            ["g", "function(data, index) return (data or 0)*255 end"],
+            ["b", "function(data, index) return (data or 0)*255 end"],
+            ["a", "function(data, index) return (data or 0)*255 end"],
+            //VertexBarycenter
+            ["ba", "function(data, index) return data or ( (index%3 == 0) and 1 or 0 ) end"],
+            ["bb", "function(data, index) return data or ( (index%3 == 1) and 1 or 0 ) end"],
+            ["bg", "function(data, index) return data or ( (index%3 == 2) and 1 or 0 ) end"]
+        ],
+
+
+        "debug" : true
+    }
+}
