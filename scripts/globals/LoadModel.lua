@@ -160,6 +160,15 @@ local function getNumber(num_list, index)
     return nil
 end
 
+local function parseNumbers(num_list)
+    local nums = {}
+    for n_str in num_list:gmatch(FLOAT_PATTERN) do
+        table.insert(nums, tonumber(n_str))
+    end
+    return nums
+end
+
+
 local function getNumbers(num_list)
     local nums = {}
     for n_str in num_list:gfind(FLOAT_PATTERN) do
@@ -251,6 +260,13 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
         --TODO: proper handeling of missing vertex info/ different vertex formats
         local colors = node.mesh.source[4] and node.mesh.source[4].float_array[1] or "1,1,1,1"
 
+        -- pre-parse positions, normals, texmaps, and colors from strings into tables of numbers.
+        local positions_table = parseNumbers(positions)
+        local normals_table = parseNumbers(normals)
+        local texmaps_table = parseNumbers(texmaps)
+        local colors_table = parseNumbers(colors)
+
+
         local tris_str = node.mesh.triangles.p --list of vertex indexes as string
         local verts = {}
 
@@ -263,27 +279,26 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
 
         local asbyte = string.byte
         local t_insert = table.insert
-        local str = ""
         local data_per_vertex = 4
         local data_count = 1
         local v_lookup = {0,0,0,0}
-
-        local space = 0x20 --ascii value of " ", should be universal...
-        local tens_place = 1
         --
         -- estop
         
-        --local tri_tbl = {asbyte(tris_str,1,#tris_str)} --causes overflow :(
+        local delimiter = asbyte(' ')
+        local parsed_number = 0
+        local parsed_position = 0
 
         for i=1, #tris_str do
             --get the vertex lookup infomration
-            local c  = tris_str[i]
-            if(c == " ") then
-                v_lookup[data_count] = tonumber(str)
-                str = ""
+            local c = asbyte(tris_str, i)
+            if(c == delimiter) then
+                -- assuming ascii numbers...
+                v_lookup[data_count] = parsed_number
+                parsed_number = 0
                 data_count = data_count + 1
             else
-                str = str .. c
+                parsed_number = (parsed_number * 10) + (c - 48)
             end
 
             if(data_count == data_per_vertex) then
@@ -300,22 +315,22 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
                 local vert = {}
                 table.insert( verts, 
                     {
-                    logAssert(getNumber(positions,pos),path..": could not find mesh id ["..id.."] vertex position x value at index ["..pos.."]") or 0,--v and positions[v][1] or 0,
-                    logAssert(getNumber(positions,pos + 1),path..": could not find mesh id ["..id.."] vertex position y value at index ["..pos.."]") or 0,--v and positions[v][2] or 0,
-                    logAssert(getNumber(positions,pos + 2),path..": could not find mesh id ["..id.."] vertex position z value at index ["..pos.."]") or 0,--v and positions[v][3] or 0,
-                    
-                    logAssert((uFlip and ( 1 - getNumber(texmaps,tex) ) or getNumber(texmaps,tex)),path..": could not find mesh id ["..id.."] vertex texmap S value at index ["..pos.."]") or 0,--do u flip; vt and uvs[vt][1] or 0,
-                    logAssert((vFlip and ( 1 - getNumber(texmaps,tex + 1) ) or getNumber(texmaps,tex + 1)),path..": could not find mesh id ["..id.."] vertex texmap T value at index ["..pos.."]") or 0,--do v flip; vt and uvs[vt][2] or 0,
-                    
-                    logAssert(getNumber(normals, nrm),path..": could not find mesh id ["..id.."] vertex normal x value at index ["..pos.."]") or 0,--vn and normals[vn][1] or 0,
-                    logAssert(getNumber(normals, nrm + 1),path..": could not find mesh id ["..id.."] vertex normal y value at index ["..pos.."]") or 0,--vn and normals[vn][2] or 0,S
-                    logAssert(getNumber(normals, nrm + 2),path..": could not find mesh id ["..id.."] vertex normal z value at index ["..pos.."]") or 0,--vn and normals[vn][3] or 0,
-                    
-                    logAssert(getNumber(colors, clr),path..": could not find mesh id ["..id.."] vertex color r value at index ["..pos.."]") or 0,--R,
-                    logAssert(getNumber(colors, clr + 1),path..": could not find mesh id ["..id.."] vertex color b value at index ["..pos.."]") or 0,--G,
-                    logAssert(getNumber(colors, clr + 2),path..": could not find mesh id ["..id.."] vertex color g value at index ["..pos.."]") or 0,--B,
-                    logAssert(getNumber(colors, clr + 3),path..": could not find mesh id ["..id.."] vertex color a value at index ["..pos.."]") or 0,--A,
-                    
+                    logAssert(positions_table[pos + 1],path..": could not find mesh id ["..id.."] vertex position x value at index ["..pos.."]") or 0,--v and positions[v][1] or 0,
+                    logAssert(positions_table[pos + 2],path..": could not find mesh id ["..id.."] vertex position y value at index ["..pos.."]") or 0,--v and positions[v][2] or 0,
+                    logAssert(positions_table[pos + 3],path..": could not find mesh id ["..id.."] vertex position z value at index ["..pos.."]") or 0,--v and positions[v][3] or 0,
+
+                    logAssert((uFlip and ( 1 - texmaps_table[tex + 1] ) or texmaps_table[tex + 1]),path..": could not find mesh id ["..id.."] vertex texmap S value at index ["..pos.."]") or 0,--do u flip; vt and uvs[vt][1] or 0,
+                    logAssert((vFlip and ( 1 - texmaps_table[tex + 2] ) or texmaps_table[tex + 2]),path..": could not find mesh id ["..id.."] vertex texmap T value at index ["..pos.."]") or 0,--do v flip; vt and uvs[vt][2] or 0,
+
+                    logAssert(normals_table[nrm + 1],path..": could not find mesh id ["..id.."] vertex normal x value at index ["..pos.."]") or 0,--vn and normals[vn][1] or 0,
+                    logAssert(normals_table[nrm + 2],path..": could not find mesh id ["..id.."] vertex normal y value at index ["..pos.."]") or 0,--vn and normals[vn][2] or 0,S
+                    logAssert(normals_table[nrm + 3],path..": could not find mesh id ["..id.."] vertex normal z value at index ["..pos.."]") or 0,--vn and normals[vn][3] or 0,
+
+                    logAssert(colors_table[clr + 1],path..": could not find mesh id ["..id.."] vertex color r value at index ["..pos.."]") or 0,--R,
+                    logAssert(colors_table[clr + 2],path..": could not find mesh id ["..id.."] vertex color b value at index ["..pos.."]") or 0,--G,
+                    logAssert(colors_table[clr + 3],path..": could not find mesh id ["..id.."] vertex color g value at index ["..pos.."]") or 0,--B,
+                    logAssert(colors_table[clr + 4],path..": could not find mesh id ["..id.."] vertex color a value at index ["..pos.."]") or 0,--A,
+
                     (#verts % 3 == 0) and 1 or 0,--barycentric alpha(#vertices%3 == 0) and 1 or 0 ,
                     (#verts % 3 == 1) and 1 or 0,--barycentric beta(#vertices%3 == 1) and 1 or 0 ,
                     (#verts % 3 == 2) and 1 or 0--barycentric gamma(#vertices%3 == 2) and 1 or 0 ,
