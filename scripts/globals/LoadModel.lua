@@ -1,4 +1,4 @@
--- originally written by groverbuger for g3d, see LISCENCE
+-- originally written by groverbuger for g3d, see LICENSE
 -- september 2021, groveburger; oct 2023 skarph
 -- MIT license
 ----------------------------------------------------------------------------------------------------
