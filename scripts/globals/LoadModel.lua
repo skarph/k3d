@@ -76,6 +76,7 @@ if success then
 
     ffi.cdef(cdef)
     end
+
     makeMesh = function(verts, vertexFormat, usage)
         local data = love.data.newByteData(ffi.sizeof("struct vertex") * #verts)
         local datapointer = ffi.cast("struct vertex*", data:getFFIPointer())
@@ -90,13 +91,63 @@ if success then
 
         --self.mesh:release()
         local mesh = love.graphics.newMesh(vertexFormat, data, "triangles", usage or "dynamic")
-        --mesh:setVertices(data)
-        --self.mesh:setTexture(self.texture)
-        --self.verts = nil
         return mesh
     end
+
 else
     Kristal.Console:warn("[k3d] Unable to load FFI, using tables-as-vertex...")
+end
+
+--stores models after we load them:
+--key = local file path passed in from LoadModel(path)
+K3D_MODEL_CACHE = {}
+--Utils.copyInto that handles love2d usserdata properly, optimized for model cacheing
+--doesnt copy texture info
+local function copyCache(new_tbl, tbl, texture, deep, seen)
+    if tbl == nil then return nil end
+
+    -- Remember the current table we're copying, so we can avoid
+    -- infinite loops when deep copying tables that reference themselves.
+    seen = seen or {}
+    seen[tbl] = new_tbl
+    local t_insert = table.insert
+    for k,v in pairs(tbl) do
+        -- If we're deep copying, and the value is a table, then we need to copy that table as well.
+        if type(v) == "table" and deep then
+            if seen[v] then
+                -- If we've already seen this table, use the same copy.
+                
+                new_tbl[k] = {}
+                copyCache(new_tbl[k], v, texture, true, seen)
+            else
+                -- Otherwise, just copy the reference.
+                new_tbl[k] = v
+            end
+        elseif( type(v) == "userdata" and v:typeOf("Mesh")) then
+            -- handle mesh cloning
+            --TODO: figure out how to extract SpriteBatchUsage 
+            local vertexFormat, usage = v:getVertexFormat(), "dynamic"
+            local verts = {}
+            for i=1, v:getVertexCount() do
+                t_insert( verts, {v:getVertex(i)} )
+            end
+            local mesh = makeMesh(verts, vertexFormat, usage)
+            mesh:setTexture(texture)
+            new_tbl[k] = mesh
+        else
+            -- The value isn't a table or we're not deep copying, so just use the value.
+            new_tbl[k] = v
+        end
+    end
+    --[[
+    -- Copy the metatable too.
+    setmetatable(new_tbl, getmetatable(tbl))
+
+    -- Call the onClone callback on the newly copied table, if it exists.
+    if new_tbl.onClone then
+        new_tbl:onClone(tbl)
+    end
+    ]]
 end
 
 --[[------------------------------------------------------------------------------------------------
@@ -258,7 +309,7 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
         local normals = node.mesh.source[2].float_array[1]
         local texmaps = node.mesh.source[3].float_array[1]
         --TODO: proper handeling of missing vertex info/ different vertex formats
-        local colors = node.mesh.source[4] and node.mesh.source[4].float_array[1] or "1,1,1,1"
+        local colors = node.mesh.source[4] and node.mesh.source[4].float_array[1]
 
         -- pre-parse positions, normals, texmaps, and colors from strings into tables of numbers.
         local positions_table = parseNumbers(positions)
@@ -272,9 +323,6 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
 
 
         ---testing
-        printt("timing loop... ")
-        
-        local t = os.clock()
         local loops = 1
 
         local asbyte = string.byte
@@ -385,7 +433,7 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
             i = i + 1
         end
         --]]
-        printt(string.format("done in %d loops, t:%f", loops,os.clock()-t))   
+        --printt(string.format("done in %d loops, t:%f", loops,os.clock()-t))   
         --create mesh
         meshes[name] = makeMesh(verts, vertexFormat, usage)
         meshes[name]:setTexture(texture)
@@ -538,7 +586,9 @@ loadModel.filetypes =
 
 --returns vertex information, scene information, and animation information
 function loadModel.__call(_, path, texture, uFlip, vFlip, vertexFormat, usage, root_dir)
-    
+    printt("started clock... ")
+    local t = os.clock()
+
     assert(type(path) == "string", "<path> is not string")
     local path = (root_dir or MODEL_ROOT_DIR)..path
     local texture = texture
@@ -567,9 +617,22 @@ function loadModel.__call(_, path, texture, uFlip, vFlip, vertexFormat, usage, r
     filesuffix = filesuffix:sub(2) --remove .
     assert(loadModel.filetypes[filesuffix], "unsupported or unrecognized format: "..(filesuffix or "Please appened a valid model filetype suffix"))
     --TODO: blender seems to export v's wrong?, force them on for now..
-
-    local meshes, tree, anim = loadModel.filetypes[filesuffix](path, texture, uFlip or false, vFlip or true, vertexFormat or VERTEX_FORMAT, usage or USAGE)
     
+    local meshes, tree, anim
+    if(K3D_MODEL_CACHE[path]) then
+        printt("cache hit at "..path.." !")
+        --clone them if in cache
+        local data = {}
+        copyCache(data,K3D_MODEL_CACHE[path], texture)
+        meshes, tree, anim = unpack( data )
+    else
+        --load them if not in cache
+        meshes, tree, anim = loadModel.filetypes[filesuffix](path, texture, uFlip or false, vFlip or true, vertexFormat or VERTEX_FORMAT, usage or USAGE)
+        printt("cacheing "..path.." and texture")
+        K3D_MODEL_CACHE[path] = {meshes, tree, anim}
+    end
+    
+    printt( string.format("loaded %s in %f", path, os.clock() - t) )
     return meshes, tree, anim
 end
 
