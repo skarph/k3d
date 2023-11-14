@@ -13,7 +13,7 @@ end
 Utils.hook(World,"init", function(orig,self,map)
     orig(self,map)
     
-    self.camera3d = Class("Camera3d")()
+    self.camera3d = Class("Camera3d")(100)
     self.camera3d.persistent = true
     self:addChild(self.camera3d)
     
