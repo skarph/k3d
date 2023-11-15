@@ -96,7 +96,6 @@ function Camera3d:pushModel(model)
 end
 
 function Camera3d:removeModel(model)
-    local removed = nil
     for i, m in ipairs(self.draw_models) do
         if(m == model) then
             model.camera3d = nil
@@ -183,7 +182,7 @@ function Camera3d:update()
     else
         if (self.track_cam) then
             local _,_, sx,sy = self.track_cam:getRect()
-            local x,y,z = self.track_cam:getPosition()
+            local x,y,z = self.track_cam:getOffsetPos()
             --TODO: camera location can be .5 off for some reaosn, figure out why?
             --for now, just floor these values...
             x,y,z=
@@ -209,7 +208,8 @@ local function prepareRender(self)
     love.graphics.push("all")
     local oldComparemode, oldWrite = love.graphics.getDepthMode() --should always be "always", false, but hey. you never know
     local oldCull = love.graphics.getMeshCullMode()
-    
+    local oldShader = love.graphics.getShader()
+
     love.graphics.origin()
     love.graphics.clear()
     love.graphics.setDepthMode("less",true)
@@ -219,10 +219,10 @@ local function prepareRender(self)
     return oldComparemode, oldWrite, oldCull
 end
 
-local function cleanupRender(oldComparemode, oldWrite, oldCull)
+local function cleanupRender(oldComparemode, oldWrite, oldCull, oldShader)
     Draw.popCanvas(true)
     Draw.popCanvasLocks()
-    love.graphics.setShader()
+    love.graphics.setShader(oldShader)
     love.graphics.pop()
     love.graphics.setDepthMode(oldComparemode, oldWrite)
     --love.graphics.setDefaultFilter( "nearest", "nearest", 1 )--TODO: see above
@@ -230,19 +230,19 @@ local function cleanupRender(oldComparemode, oldWrite, oldCull)
 end
 
 function Camera3d:renderModels()
-    local oldComparemode, oldWrite, oldCull = prepareRender(self)
+    local oldComparemode, oldWrite, oldCull, oldShader = prepareRender(self)
     local ok, msg
     for i,model in ipairs(self.draw_models) do
         if(model.visible) then
             ok, msg  = pcall(model.render, model)
         end
         if not ok then
-            cleanupRender(oldComparemode, oldWrite, oldCull) --cleanup on error, if we dont here kristal goes to a bad draw state (you cant see anything forever)
+            cleanupRender(oldComparemode, oldWrite, oldCull, oldShader) --cleanup on error, if we dont here kristal goes to a bad draw state (you cant see anything forever)
             error("Error in model draw (bad traceback below, see short error) - \n"..msg)
             break
         end
     end
-    cleanupRender(oldComparemode, oldWrite, oldCull)
+    cleanupRender(oldComparemode, oldWrite, oldCull, oldShader)
 end
 
 -- recreate the camera's projection matrix from its current values
@@ -322,7 +322,7 @@ function Camera3d:lookAt(x,y,z, tx,ty,tz, ux,uy,uz, sx,sy,sz)
         ; camera position in worldspace
         P = getCameraPosition()
         ; can be changed, represents the arbitrary up vector
-        WORLD_UP = 0,1,0
+        WORLD_UP = 0,1,0fp
 
         ; direction vector from target to camera
         D = normalize( P - target )

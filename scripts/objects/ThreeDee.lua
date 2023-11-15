@@ -160,6 +160,24 @@ function ThreeDee:setTransform(tx,ty,tz, qr,qi,qj,qk, sx,sy,sz)
     self:updateMatrix()
 end
 
+function ThreeDee:lookAt(x,y,z, tx,ty,tz, ux,uy,uz, sx,sy,sz)
+    --initialize arguments or default values if not specified
+    tx,ty,tz = tx or self.x, ty or self.y, tz or self.z
+    sx, sy, sz = sx or self.scale_x, sy or sx or self.scale_y, sz or sx or self.scale_z
+    if(not ux) then --assume uy and uz are set if ux is set, otherwise
+        ux,uy,uz = self:getUp()
+    end
+    --:( i forgot this function was here the whole time. im SUPER dummy
+    --no need to call updateMatrix
+    self.matrix:setPointToMatrix(tx,ty,tz, x,y,z, ux,uy,uz, self.scale_x, self.scale_y, self.scale_z)
+
+    --but we do need to decompose it and set update where we are
+    self.x, self.y, self.z = tx,ty,tz
+    self.scale_x, self.scale_y, self.scale_z = sx,sy,sz
+    self.rotation_r, self.rotation_i, self.rotation_j, self.rotation_k = self.matrix:getRotationQuaternion()
+end
+
+-- translation --
 function ThreeDee:move(tx,ty,tz)
     self.x, self.y, self.z = 
     self.x + (tx or 0), self.y + (ty or 0), self.z + (tz or 0)
@@ -198,10 +216,7 @@ end
 function ThreeDee:setRotationEuler(rotx, roty, rotz)
     self.rotation_r, self.rotation_i, self.rotation_j, self.rotation_k
     =
-    q_mul_C(
-        self.rotation_r, self.rotation_i, self.rotation_j, self.rotation_k,
-        q_from_ea(rotx, roty, rotz) --idk why thhis works, check later
-    )
+    q_from_ea(rotx, roty, rotz)
 
     self:updateMatrix()
 end

@@ -1,6 +1,7 @@
 --[[
     k3d by skarph
 ]]
+print("-====Loading k3d====-")
 local lib = {}
 
 --TODO: find better way to maintain this list...
@@ -16,11 +17,18 @@ setmetatable(k3dObjects, {__index =
     end})
 
 function lib:init()
-    print("-====Loading k3d====-")
+    if( Kristal.getLibConfig("k3d", "preload") ) then
+        printt("starting cache @ "..Kristal.getLibConfig("k3d", "model_path"))
+        LoadModel.cacheFolder( Kristal.getLibConfig("k3d", "model_path") )
+        printt("finished cache @ "..Kristal.getLibConfig("k3d", "model_path"))
+    end
+    print("-====Loaded k3d====-")
 end
 
 function lib:unload()
     print("-===Unloading k3d===-")
+    printt = nil
+    print("-===Unloaded k3d===-")
 end
 
 function lib:loadObject(world, name, data)
@@ -37,9 +45,10 @@ function logAssert(input,msg)
     return input
 end
 
-printt = printt or function() end --does nothing by default for preformance/shutting up the console reasons
+printt = function() end --does nothing by default for preformance/shutting up the console reasons
 rawgetclassname = rawgetclassname or function() end --nothing again, but need toexpose it
 rawtostring = rawtostring or function() end --same here, in case
+
 if(Kristal.getLibConfig("k3d", "debug")) then
 
     function lib:onMousePressed(win_x, win_y, button, istouch, presses)
@@ -285,7 +294,8 @@ if(Kristal.getLibConfig("k3d", "debug")) then
             end
         end
     end)
-
+else
+    printt = printt or function() end --does nothing by default for preformance/shutting up the console reasons
 end
 
 return lib

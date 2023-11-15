@@ -2,7 +2,10 @@
     "id": "k3d", 
     "config" :
     {
-        "model_path" : "/assets/models/",
+        //preloads all the models into the cache on mod load. longer startups, shorter model load time if enabled
+        "preload" : true,
+        
+        "model_path" : "assets/models/",
         "shader_path" : "/assets/scripts/shaders3d",
         //Please dont touch these if you dont know what your doing. you're gonna corrupt the vertex data
         

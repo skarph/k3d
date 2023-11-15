@@ -10,19 +10,11 @@ function Model.init(self, path,texture, tx,ty,tz, sx,sy,sz, qr,qi,qj,qk, width, 
     if(type(path) == "table") then
         printt("Model data from tiled, assume camera3d")
         local data, world = path, texture
-        --printt(data)
-        for k, v in pairs(data) do
-            printt(k,v)
-        end
-        printt("--------------")
-        for k, v in pairs(data.properties) do
-            printt(k, v)
-        end
+        printt(data)
         path = data.properties.path
         tx, ty, tz  = data.properties.x or data.x or 0, data.properties.y or data.y or 0, data.properties.z or 0
-        printt(tx, ty, tz)
         texture = assert(data.properties.texture, "No texture provided!\nSet the model's texture property.")
-        if(data.properties.rx) then
+        if(data.properties.rx or data.properties.ry or data.properties.rz) then
             qr,qi,qj,qk = qfromea(
                 (data.properties.rx or 0) * math.pi/180,
                 (data.properties.ry or 0) * math.pi/180,
@@ -39,14 +31,12 @@ function Model.init(self, path,texture, tx,ty,tz, sx,sy,sz, qr,qi,qj,qk, width, 
         sy = data.properties.scale or data.properties.sy
         sz = data.properties.scale or data.properties.sx
 
-        printt(isClass(world.camera3d) and Utils.getClassName(world.camera3d))
         super.init(self, tx, ty, tz, sx, sy, sz, qr, qi, qj, qk, width, height, depth)
         
         self.camera3d = Game.world.camera3d
         if(self.camera3d) then
             if(self.camera3d.track_cam) then
                 assert(self.camera3d.matrix)
-                printt("AAA",tx,ty,tz)
                 self:setPixelPosition(tx,ty,tz)
             else
                 printt("Couldn't set model pixel position, parent camera has no track_cam!")
@@ -276,6 +266,30 @@ function Model:movePixel(x,y,z)
     )
 end
 
+function Model:lookAtPixel(x,y,z, tx,ty,tz, ux,uy,uz, sx,sy,sz)
+    assert(self.camera3d.track_cam, "Parent camera3d is not tracking a regular camera!")
+    local _,_,_,csy = self.camera3d.track_cam:getRect()
+    x,y,z =
+        x / self.camera3d.scale_x,
+        (-y / self.camera3d.scale_y) + csy,
+        z / self.camera3d.scale_z
+    printt(x,y,z)
+    --initialize arguments or default values if not specified
+    tx,ty,tz = tx or self.x, ty or self.y, tz or self.z
+    sx, sy, sz = sx or self.scale_x, sy or sx or self.scale_y, sz or sx or self.scale_z
+    if(not ux) then --assume uy and uz are set if ux is set, otherwise
+        ux,uy,uz = self:getUp()
+    end
+    --:( i forgot this function was here the whole time. im SUPER dummy
+    --no need to call updateMatrix
+    self.matrix:setPointToMatrix(tx,ty,tz, x,y,z, ux,uy,uz, self.scale_x, self.scale_y, self.scale_z)
+
+    --but we do need to decompose it and set update where we are
+    self.x, self.y, self.z = tx,ty,tz
+    self.scale_x, self.scale_y, self.scale_z = sx,sy,sz
+    self.rotation_r, self.rotation_i, self.rotation_j, self.rotation_k = self.matrix:getRotationQuaternion()
+end
+
 function Model:getPixelPosition()
     --3d worldspace is NDC, negative y and negative x are visible.
     --this also means positive y is up, unlike screen space where it's down
@@ -288,7 +302,7 @@ function Model:getPixelPosition()
         self.z / self.camera3d.scale_z
 end
 
-
+--recurses to lowest camera available in tree that's above base
 local function recurseToCamera3d(func, base, ...)
     if(not base) then
         error("Couldnt find a Camera3d in any parents!")
@@ -299,6 +313,7 @@ local function recurseToCamera3d(func, base, ...)
     if(base.parent) then
         recurseToCamera3d(base.parent)
     end
+    error("No more parents for "..tostring(base))
 end
 
 --this is very hacky and we need to fix this; ideally the multiple cameras should be able to draw the same model, buuuuuuuut

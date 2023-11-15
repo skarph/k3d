@@ -34,7 +34,7 @@ for i, datamap in ipairs(VERTEX_DATAMAP) do
     datamap[2] = chunk()
 end
 
-local MODEL_ROOT_DIR = Mod.info.path..Kristal.getLibConfig("k3d", "model_path") --folder we should look in for all model assets (including textures)
+local MODEL_ROOT_DIR = Mod.info.path.."/"..Kristal.getLibConfig("k3d", "model_path") --folder we should look in for all model assets (including textures)
 local USAGE = "dynamic" --default usage, "dynamic", "static", "stream"
 
 
@@ -97,59 +97,6 @@ if success then
 else
     Kristal.Console:warn("[k3d] Unable to load FFI, using tables-as-vertex...")
 end
-
---stores models after we load them:
---key = local file path passed in from LoadModel(path)
-K3D_MODEL_CACHE = {}
---Utils.copyInto that handles love2d usserdata properly, optimized for model cacheing
---doesnt copy texture info
-local function copyCache(new_tbl, tbl, texture, deep, seen)
-    if tbl == nil then return nil end
-
-    -- Remember the current table we're copying, so we can avoid
-    -- infinite loops when deep copying tables that reference themselves.
-    seen = seen or {}
-    seen[tbl] = new_tbl
-    local t_insert = table.insert
-    for k,v in pairs(tbl) do
-        -- If we're deep copying, and the value is a table, then we need to copy that table as well.
-        if type(v) == "table" and deep then
-            if seen[v] then
-                -- If we've already seen this table, use the same copy.
-                
-                new_tbl[k] = {}
-                copyCache(new_tbl[k], v, texture, true, seen)
-            else
-                -- Otherwise, just copy the reference.
-                new_tbl[k] = v
-            end
-        elseif( type(v) == "userdata" and v:typeOf("Mesh")) then
-            -- handle mesh cloning
-            --TODO: figure out how to extract SpriteBatchUsage 
-            local vertexFormat, usage = v:getVertexFormat(), "dynamic"
-            local verts = {}
-            for i=1, v:getVertexCount() do
-                t_insert( verts, {v:getVertex(i)} )
-            end
-            local mesh = makeMesh(verts, vertexFormat, usage)
-            mesh:setTexture(texture)
-            new_tbl[k] = mesh
-        else
-            -- The value isn't a table or we're not deep copying, so just use the value.
-            new_tbl[k] = v
-        end
-    end
-    --[[
-    -- Copy the metatable too.
-    setmetatable(new_tbl, getmetatable(tbl))
-
-    -- Call the onClone callback on the newly copied table, if it exists.
-    if new_tbl.onClone then
-        new_tbl:onClone(tbl)
-    end
-    ]]
-end
-
 --[[------------------------------------------------------------------------------------------------
 -- simple COLLADA loader
 -- please ignore these notes these were just for me writing
@@ -578,6 +525,102 @@ function loadModel.loadobj(path, texture, uFlip, vFlip, vertexFormat, usage)
     return {mesh}, {}, {} --no scene, no animation
 end
 
+--stores models after we load them:
+--key = local file path passed in from LoadModel(path)
+K3D_MODEL_CACHE = {}
+--stores textures for models after we load them
+K3D_TEXTURE_CACHE = {}
+
+--   Controls the cacheing levels, ordered by speed
+--0: No Cacheing. Models re-loaded from local files every time.
+--1: Clone Mesh. Model data are retrived from cache, meshes are cloned
+--2: Mesh Refrence. Model data are retrived from cache, meshes pointers are copied to model
+
+K3D_CACHE_LEVEL = 1
+
+--Utils.copyInto that handles love2d usserdata properly, optimized for model cacheing
+--doesnt copy texture info
+local Virtual_Mesh = love.graphics.newMesh(1) -- mesh object used to grab mesh functions
+    local lg_newMesh = love.graphics.newMesh
+    local m_getVertex = Virtual_Mesh.getVertex
+    local m_setVertex = Virtual_Mesh.setVertex
+    local m_getVertexFormat = Virtual_Mesh.getVertexFormat
+    local m_getVertexCount = Virtual_Mesh.getVertexCount
+    local m_setTexture = Virtual_Mesh.setTexture
+    local m_typeOf = Virtual_Mesh.typeOf
+
+local function copyCache(new_tbl, tbl, texture)
+    if tbl == nil then return nil end
+
+    for k,v in pairs(tbl) do
+        --we're deep copying, and the value is a table, then we need to copy that table as well.
+        if type(v) == "table" then
+            new_tbl[k] = {}
+            copyCache(new_tbl[k], v, texture)
+        elseif( type(v) == "userdata" and m_typeOf(v,"Mesh") ) then
+
+            if(false) then --fastcache
+                m_setTexture(v, texture)
+                new_tbl[k] = v
+            else
+            -- handle mesh cloning
+                local vertex_format, vertex_count, usage = m_getVertexFormat(v), m_getVertexCount(v), "dynamic"
+                local mesh = lg_newMesh(vertex_format, vertex_count, "triangles", usage)
+                --TODO: figure out how to extract SpriteBatchUsage 
+                --local verts = {}
+                for i=1, vertex_count do
+                    m_setVertex(mesh, i, m_getVertex(v, i) )
+                end
+                m_setTexture(mesh, texture)
+                new_tbl[k] = mesh
+            end
+        else
+            -- The value isn't a table or we're not deep copying, so just use the value.
+            new_tbl[k] = v
+        end
+    end
+
+    setmetatable(new_tbl, getmetatable(tbl))
+    --[[
+    -- Call the onClone callback on the newly copied table, if it exists.
+    if new_tbl.onClone then
+        new_tbl:onClone(tbl)
+    end
+    ]]
+end
+
+--caches an entire folder of model/textures into their appropriate global tables
+function loadModel.cacheFolder(dir)
+    dir = MODEL_ROOT_DIR or dir
+    printt("cacheing all models + textures in",dir)
+
+    for i, file_name in ipairs( love.filesystem.getDirectoryItems( dir ) ) do
+        local path = dir..file_name
+        printt(i,":",path)
+        loadModel.cacheFile(path)
+    end
+
+end
+
+function loadModel.cacheFile(path)
+    local filesuffix = nil
+    for w in path:gmatch(".%a+") do
+        filesuffix = w
+    end
+    filesuffix = filesuffix:sub(2) --remove .
+    
+    if(loadModel.filetypes[filesuffix]) then
+        K3D_MODEL_CACHE[path] = {loadModel(path, nil, nil, nil, nil, nil, "")}
+    else --assume texture?
+        K3D_TEXTURE_CACHE[path] =love.graphics.newImage(path,
+            {
+                mipmaps = true,
+                linear = false
+            }
+        )
+    end
+end
+
 loadModel.filetypes = 
 {
     obj = loadModel.loadobj,
@@ -586,27 +629,36 @@ loadModel.filetypes =
 
 --returns vertex information, scene information, and animation information
 function loadModel.__call(_, path, texture, uFlip, vFlip, vertexFormat, usage, root_dir)
-    printt("started clock... ")
+    printt("started clock ["..path.."] ["..tostring(texture).."]")
     local t = os.clock()
 
     assert(type(path) == "string", "<path> is not string")
-    local path = (root_dir or MODEL_ROOT_DIR)..path
-    local texture = texture
+    path = (root_dir or MODEL_ROOT_DIR)..path
+
     assert(love.filesystem.getInfo(path), "File does not exist: "..path)
     assert(love.filesystem.getInfo(path).type == "file", "Path does not point to a file: "..path)
+
     if(texture) then
-        if(type(texture.type) == "function" and texture:type() == "Texture") then
+        if(type(texture) == "userdata" and texture:typeOf("Texture")) then
             --error("IT WORKS :D")
-        else
-            assert(type(texture) == "string", "<texture> is not string")
+        elseif(type(texture) == "string") then
+            assert(type(texture) == "string", "<texture> is not string or Image")
+            texture = (root_dir or MODEL_ROOT_DIR)..texture
             assert(
-                love.filesystem.getInfo((root_dir or MODEL_ROOT_DIR)..texture)
+                love.filesystem.getInfo(texture)
                 ,"Texture pathdoes not point to a file"
             )
-            texture = love.graphics.newImage(MODEL_ROOT_DIR..texture,{
-                mipmaps = true,
-                linear = false
-            })
+            --check cache first
+            if(K3D_CACHE_LEVEL > 0 and K3D_TEXTURE_CACHE[texture]) then
+                printt("texcache hit at "..texture.." !")
+                texture = K3D_TEXTURE_CACHE[texture]
+            else
+                printt("texcacheing "..texture)
+                texture = love.graphics.newImage(texture,{
+                    mipmaps = true,
+                    linear = false
+                })
+            end
         end
     end
 
@@ -619,16 +671,16 @@ function loadModel.__call(_, path, texture, uFlip, vFlip, vertexFormat, usage, r
     --TODO: blender seems to export v's wrong?, force them on for now..
     
     local meshes, tree, anim
-    if(K3D_MODEL_CACHE[path]) then
+    if(K3D_CACHE_LEVEL > 0 and K3D_MODEL_CACHE[path]) then
         printt("cache hit at "..path.." !")
         --clone them if in cache
         local data = {}
-        copyCache(data,K3D_MODEL_CACHE[path], texture)
+        copyCache(data, K3D_MODEL_CACHE[path], texture)
         meshes, tree, anim = unpack( data )
     else
         --load them if not in cache
         meshes, tree, anim = loadModel.filetypes[filesuffix](path, texture, uFlip or false, vFlip or true, vertexFormat or VERTEX_FORMAT, usage or USAGE)
-        printt("cacheing "..path.." and texture")
+        printt("cacheing "..path)
         K3D_MODEL_CACHE[path] = {meshes, tree, anim}
     end
     

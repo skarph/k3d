@@ -24,12 +24,8 @@ Utils.hook(Map,"init", function(orig, self, world, data)
             printt("tracking world camera", tostring(world.camera))
             --Game.world.camera3d:updateOrthographicMatrix() --put in orthographic mode
             --Game.world.camera3d:updateProjectionMatrix()
-            printt("\n",world.camera3d.matrix)
-            printt("DET:",world.camera3d.matrix:determinant())
             world.camera3d:trackCamera(world.camera, cam_x, cam_y, cam_z)
             Game.world.camera3d:setFocus(3)
-            printt("\n",world.camera3d.matrix)
-            printt("DET:",world.camera3d.matrix:determinant())
         end
     end
 end)

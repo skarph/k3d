@@ -147,6 +147,18 @@ function matrix:setLookAtMatrix(cam_x,cam_y,cam_z, pnt_x,pnt_y,pnt_z, up_x,up_y,
     return self
 end
 
+--setLookAtMatrix for normal non-camera purpouses
+function matrix:setPointToMatrix(tx,ty,tz, pnt_x,pnt_y,pnt_z, up_x,up_y,up_z, sx,sy,sz)
+    local z1, z2, z3 = vectorNormalize(pnt_x - tx, pnt_y - ty, pnt_z - tz)
+    local x1, x2, x3 = vectorNormalize(vectorCrossProduct(up_x, up_y, up_z, z1, z2, z3))
+    local y1, y2, y3 = vectorCrossProduct(z1, z2, z3, x1, x2, x3)
+
+    self[1],  self[2],  self[3],  self[4]  = x1, y1, z1, tx
+    self[5],  self[6],  self[7],  self[8]  = x2, y2, z2, ty
+    self[9],  self[10], self[11], self[12] = x3, y3, z3, tz
+    self[13], self[14], self[15], self[16] = 0, 0, 0, 1
+    return self
+end
 -- returns a transform matrix
 -- q is a quaternion (real, i,j,k) is a scale, x,y,z is translation
 -- applies in order rotate -> scale -> translate 
@@ -179,9 +191,9 @@ function matrix:setQST(qr,qi,qj,qk, sx,sy,sz, tx,ty,tz)
         self[9],  self[10], self[11], self[12], 
         self[13], self[14], self[15], self[16]
         =
-        sx*(1 - 2*j2 - 2*k2 ), sy*(2*ij - 2*rk),     sz*(2*ik + 2*rj),   sx*tx,
-        sx*(2*ij + 2*rk) ,     sy*(1 - 2*i2 - 2*k2), sz*(2*jk - 2*ri),   sy*ty,
-        sx*(2*ik - 2*rj) ,     sy*(2*jk + 2*ri) ,    sz*(1- 2*i2 - 2*j2),sz*tz,
+        sx*(1 - 2*j2 - 2*k2 ), sy*(2*ij - 2*rk),     sz*(2*ik + 2*rj),    tx,
+        sx*(2*ij + 2*rk) ,     sy*(1 - 2*i2 - 2*k2), sz*(2*jk - 2*ri),    ty,
+        sx*(2*ik - 2*rj) ,     sy*(2*jk + 2*ri) ,    sz*(1- 2*i2 - 2*j2), tz,
         0,0,0,1
         
         return self
@@ -208,9 +220,9 @@ function matrix:setBST(ax,ay,az, bx,by,bz, cx,cy,cz,  sx,sy,sz, tx,ty,tz)
     self[9],  self[10], self[11], self[12], 
     self[13], self[14], self[15], self[16]
     =
-    sx*ax, sy*bx, sz*cx, sx*tx,
-    sx*ay, sy*by, sz*cy, sy*ty,
-    sx*az, sy*bz, sz*cz, sz*tz,
+    sx*ax, sy*bx, sz*cx,  tx,
+    sx*ay, sy*by, sz*cy,  ty,
+    sx*az, sy*bz, sz*cz,  tz,
     0    , 0    , 0    , 1
 
     return self
