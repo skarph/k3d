@@ -6,32 +6,68 @@
 -- also slightly more complicated collada loader
 -- generates model data, love2d mesh info
 ----------------------------------------------------------------------------------------------------
-if(LoadModel) then Kristal.Console:error("Attempted to redfine LoadModel, sticking with initial definition...") return LoadModel end --why do we already exist????
---dependencies
-
+if(LoadModel) then printt(debug.traceback()) Kristal.Console:error("Attempted to redfine LoadModel, sticking with initial definition...") return LoadModel end --why do we already exist????
 printt("Loading: LoadModel.lua")
+--dependencies
+require("table.new")
 local Xml2lua = libRequire("k3d", "xml2lua.xml2lua")
 local TREE_HANDLER = libRequire("k3d", "xml2lua.xmlhandler.tree")
-local newMatrix = libRequire("k3d", "scripts.globals.Matrix4x4")
+local newMatrix = libRequire("k3d", "scripts.globals.Matrix4x4") --loading order prescedence :/
+
+local Virtual_Mesh = love.graphics.newMesh(1) -- mesh object used to grab mesh functions
+    local lg_newMesh = love.graphics.newMesh
+    local m_getVertex = Virtual_Mesh.getVertex
+    local m_setVertex = Virtual_Mesh.setVertex
+    local m_getVertexFormat = Virtual_Mesh.getVertexFormat
+    local m_getVertexCount = Virtual_Mesh.getVertexCount
+    local m_setTexture = Virtual_Mesh.setTexture
+    local m_typeOf = Virtual_Mesh.typeOf
+    local m_setVertexAttribute = Virtual_Mesh.setVertexAttribute
 
 local loadModel = {} 
 setmetatable(loadModel, loadModel)
 
---todo: unhardcode these *fully* 
---default vertex format
-local VERTEX_FORMAT = Kristal.getLibConfig("k3d", "VERTEX_FORMAT")
-
 --used to construct vertex cdef. should list out VERTEclX_FORMAT with a string being this field's name
 -- and a function returnin values. data is the vertex data at this value, index is the vextex's index in load order
 local VERTEX_DATAMAP = Kristal.getLibConfig("k3d", "VERTEX_DATAMAP")
---load functions from string
+--used by love2d
+local VERTEX_FORMAT = {}
 
-for i, datamap in ipairs(VERTEX_DATAMAP) do
-    assert(type(datamap[2]=="string"), "[k3d] Non-function in config: (VERTEX_DATAMAP # "..i.."): "..tostring(datamap[2]))
-    local chunk, err = loadstring("return "..datamap[2])
+--namspace refresh hack, generates a unique id that is used for this session and attaches it to the vertex struct name so we never redefine the vertex format, technically.
+--TODO: this is a crime. why am i doing this. please dear god come up with something better. is the speed increase even worth it at this point?
+local _alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+local SESSION_ID = ""
+for i=1, 32 do
+    SESSION_ID = SESSION_ID .. _alphabet[ love.math.random(1,#_alphabet) ]
+end
+local VERTEX_C_IDENTIFIER = "struct vertex"..SESSION_ID
+local VERTEX_C_IDENTIFIER_PTR = VERTEX_C_IDENTIFIER.."*"
+printt("SESSION_UUID:", SESSION_ID)
+Kristal.Console:log( string.format("SESSION_ID: %s", SESSION_ID) )
+
+--load functions from string
+for i, data_map in ipairs(VERTEX_DATAMAP) do
+
+    --parse function
+    --TODO: very unsafe, runs code from string, look into making it safer?
+    assert(type(data_map[4]=="string"), "[k3d] Non-function in config: (VERTEX_DATAMAP # "..i.."): "..tostring(data_map[4]))
+    local chunk, err = loadstring("return "..data_map[4])
     assert(not err, "[k3d.config] bad value (VERTEX_DATAMAP # "..i.."): "..tostring(err))
     assert(type(chunk()) == "function", "[k3d.config] not a func (VERTEX_DATAMAP # "..i.."): "..tostring(chunk()))
-    datamap[2] = chunk()
+    data_map[4] = chunk()
+
+    --populate VERTEX_FORMAT
+    local found_vertex = false
+    for vi, vertex_format in ipairs(VERTEX_FORMAT) do
+        if(vertex_format[1] == data_map[1]) then --if names are same
+            vertex_format[3] = vertex_format[3] + 1
+            found_vertex = true
+        end
+    end
+    if(not found_vertex) then --create the VERTEX_FORMAT entry
+        table.insert(VERTEX_FORMAT, {data_map[1], data_map[2], 1})
+    end
+
 end
 
 local MODEL_ROOT_DIR = Mod.info.path.."/"..Kristal.getLibConfig("k3d", "model_path") --folder we should look in for all model assets (including textures)
@@ -57,29 +93,27 @@ local success, ffi = pcall(require, "ffi")
 
 if success then
     Kristal.Console:push("[k3d] FFI loaded!")
-    local vertex_format_loaded, err = pcall(ffi.sizeof,"struct vertex")
-    if vertex_format_loaded then
-        Kristal.Console:warn("[k3d] vertex format already in memory, but why? skipping loading...")
-    else
-        --construct cstruct
-        local cdef = "struct vertex {"
-        local vdm_i = 1
-        for i, form in ipairs(VERTEX_FORMAT) do
-            --defaults
-            cdef = cdef .. CTYPE[form[2]]
-            for j = 1, form[3] do 
-                cdef = cdef .. " ".. VERTEX_DATAMAP[vdm_i][1]..( j~=form[3] and "," or "; ")
-                vdm_i = vdm_i + 1
-            end
+    --check if we're about to redefine a vertex struct
+    local size, err = pcall(ffi.sizeof,VERTEX_C_IDENTIFIER)
+    assert(err, "Unlucky Session ID collision. Please reload mod.")
+    --define vertex struct with unique identifier
+    local cdef = VERTEX_C_IDENTIFIER.." {"
+    local vdm_i = 1
+    for i, form in ipairs(VERTEX_FORMAT) do
+        --defaults
+        cdef = cdef .. CTYPE[form[2]]
+        for j = 1, form[3] do 
+            cdef = cdef .. " ".. VERTEX_DATAMAP[vdm_i][3]..( j~=form[3] and "," or "; ")
+            vdm_i = vdm_i + 1
         end
-        cdef = cdef.."}"
-
-    ffi.cdef(cdef)
     end
-
+    cdef = cdef.."}"
+    ffi.cdef(cdef)
+    printt(cdef)
+    --error(cdef)
     makeMesh = function(verts, vertexFormat, usage)
-        local data = love.data.newByteData(ffi.sizeof("struct vertex") * #verts)
-        local datapointer = ffi.cast("struct vertex*", data:getFFIPointer())
+        local data = love.data.newByteData(ffi.sizeof(VERTEX_C_IDENTIFIER) * #verts)
+        local datapointer = ffi.cast(VERTEX_C_IDENTIFIER_PTR, data:getFFIPointer())
 
         for i, vert in ipairs(verts) do
             local dataindex = i - 1
@@ -95,7 +129,7 @@ if success then
     end
 
 else
-    Kristal.Console:warn("[k3d] Unable to load FFI, using tables-as-vertex...")
+    error("Unable to load FFI! this should never happen...")
 end
 --[[------------------------------------------------------------------------------------------------
 -- simple COLLADA loader
@@ -245,145 +279,90 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
     local geometries = #root.library_geometries.geometry == 0 and {root.library_geometries.geometry} or root.library_geometries.geometry
     
     local geo_num = 1
-
+    
+    local ld_newByteData = love.data.newByteData
+    local ffi_cast = ffi.cast
+    local ffi_sizeof = ffi.sizeof
     for _, node in ipairs(geometries) do
         local id = node._attr.id
         local name = mesh_lookup[id]
 
         --get locations of vertex data
-        --TODO: check if this always holds true? there's url pointers for a reason
-        local positions = node.mesh.source[1].float_array[1]
-        local normals = node.mesh.source[2].float_array[1]
-        local texmaps = node.mesh.source[3].float_array[1]
-        --TODO: proper handeling of missing vertex info/ different vertex formats
-        local colors = node.mesh.source[4] and node.mesh.source[4].float_array[1]
-
-        -- pre-parse positions, normals, texmaps, and colors from strings into tables of numbers.
-        local positions_table = parseNumbers(positions)
-        local normals_table = parseNumbers(normals)
-        local texmaps_table = parseNumbers(texmaps)
-        local colors_table = parseNumbers(colors)
-
+        local attributes = {}
+        for i, source in ipairs(node.mesh.source) do
+            attributes[i] = source.float_array and parseNumbers(source.float_array[1])
+        end
 
         local tris_str = node.mesh.triangles.p --list of vertex indexes as string
-        local verts = {}
+        local vertex_count = tonumber(node.mesh.triangles._attr.count) * 3 --assume triangles have 3 vertecies
+        local data_per_vertex = #node.mesh.triangles.input
 
-
-        ---testing
-        local loops = 1
+        local vertecies = ld_newByteData(ffi_sizeof(VERTEX_C_IDENTIFIER) * vertex_count)
+        local vertecies_ptr = ffi_cast(VERTEX_C_IDENTIFIER_PTR, vertecies:getFFIPointer())
+        
+        local vertex_index = 0
 
         local asbyte = string.byte
         local t_insert = table.insert
-        local data_per_vertex = 4
-        local data_count = 1
-        local v_lookup = {0,0,0,0}
-        --
-        -- estop
+        local data_count = 0
+        local v_lookup = {}
         
         local delimiter = asbyte(' ')
         local parsed_number = 0
-        local parsed_position = 0
 
         for i=1, #tris_str do
             --get the vertex lookup infomration
             local c = asbyte(tris_str, i)
             if(c == delimiter) then
                 -- assuming ascii numbers...
-                v_lookup[data_count] = parsed_number
-                parsed_number = 0
                 data_count = data_count + 1
+                v_lookup[data_count] = parsed_number 
+                parsed_number = 0
             else
                 parsed_number = (parsed_number * 10) + (c - 48)
+                if(i==#tris_str) then --last character, no delimeter
+                    data_count = data_count + 1
+                    v_lookup[data_count] = parsed_number 
+                end
             end
 
+            --we have the lookup values, create the vertex and push it into the mesh
             if(data_count == data_per_vertex) then
-                --handle the verex data
-                --printt(v_lookup[1], v_lookup[2], v_lookup[3], v_lookup[4])
 
-                local pos, nrm, tex, clr =  
-                    3 * v_lookup[1], 
-                    3 * v_lookup[2], 
-                    2 * v_lookup[3], 
-                    4 * v_lookup[4] 
-                --should always these 4, in this order, with these strides. if it isnt, rewrite code
-                --build triangle
-                local vert = {}
-                table.insert( verts, 
-                    {
-                    logAssert(positions_table[pos + 1],path..": could not find mesh id ["..id.."] vertex position x value at index ["..pos.."]") or 0,--v and positions[v][1] or 0,
-                    logAssert(positions_table[pos + 2],path..": could not find mesh id ["..id.."] vertex position y value at index ["..pos.."]") or 0,--v and positions[v][2] or 0,
-                    logAssert(positions_table[pos + 3],path..": could not find mesh id ["..id.."] vertex position z value at index ["..pos.."]") or 0,--v and positions[v][3] or 0,
+                local attribute_index = 1
+                assert(vertex_count > vertex_index, "too many vertices from "..path)
+                for format_index=1, #VERTEX_FORMAT  do
+                    
+                    local attribute_length = VERTEX_FORMAT[format_index][3]
 
-                    logAssert((uFlip and ( 1 - texmaps_table[tex + 1] ) or texmaps_table[tex + 1]),path..": could not find mesh id ["..id.."] vertex texmap S value at index ["..pos.."]") or 0,--do u flip; vt and uvs[vt][1] or 0,
-                    logAssert((vFlip and ( 1 - texmaps_table[tex + 2] ) or texmaps_table[tex + 2]),path..": could not find mesh id ["..id.."] vertex texmap T value at index ["..pos.."]") or 0,--do v flip; vt and uvs[vt][2] or 0,
+                    local lookup = v_lookup[format_index]
+                    
+                    for attribute_offset=1, attribute_length do
 
-                    logAssert(normals_table[nrm + 1],path..": could not find mesh id ["..id.."] vertex normal x value at index ["..pos.."]") or 0,--vn and normals[vn][1] or 0,
-                    logAssert(normals_table[nrm + 2],path..": could not find mesh id ["..id.."] vertex normal y value at index ["..pos.."]") or 0,--vn and normals[vn][2] or 0,S
-                    logAssert(normals_table[nrm + 3],path..": could not find mesh id ["..id.."] vertex normal z value at index ["..pos.."]") or 0,--vn and normals[vn][3] or 0,
+                        local userFunc = VERTEX_DATAMAP[attribute_index][4]
+                        local label = VERTEX_DATAMAP[attribute_index][3]
 
-                    logAssert(colors_table[clr + 1],path..": could not find mesh id ["..id.."] vertex color r value at index ["..pos.."]") or 0,--R,
-                    logAssert(colors_table[clr + 2],path..": could not find mesh id ["..id.."] vertex color b value at index ["..pos.."]") or 0,--G,
-                    logAssert(colors_table[clr + 3],path..": could not find mesh id ["..id.."] vertex color g value at index ["..pos.."]") or 0,--B,
-                    logAssert(colors_table[clr + 4],path..": could not find mesh id ["..id.."] vertex color a value at index ["..pos.."]") or 0,--A,
+                        if(lookup) then
+                            vertecies_ptr[vertex_index][label] = userFunc( attributes[format_index][attribute_length * lookup + attribute_offset] , vertex_index, uFlip, vFlip )
+                        else
+                            vertecies_ptr[vertex_index][label] = userFunc( nil , vertex_index, uFlip, vFlip )
+                        end
+                        
+                        attribute_index = attribute_index + 1
+                    end
 
-                    (#verts % 3 == 0) and 1 or 0,--barycentric alpha(#vertices%3 == 0) and 1 or 0 ,
-                    (#verts % 3 == 1) and 1 or 0,--barycentric beta(#vertices%3 == 1) and 1 or 0 ,
-                    (#verts % 3 == 2) and 1 or 0--barycentric gamma(#vertices%3 == 2) and 1 or 0 ,
-                    }
-                )
-                --printt(string.format("done loop (%d)#%d in t:%f",geo_num,i,os.clock()-t))
+                end
+
+                vertex_index = vertex_index + 1
                 data_count = 0 --reset vertex data count since we're done with this vertex
-                loops = loops + 1
-
             end
-        end
-        --]]
-        --end testing
 
-        --TODO: This is the culprint!
-        -- takes about 20 seocnds to load monkey.dae because it does 2901 matches? it works but still, 
-        --[[
-        for v_str in tris_str:gfind("%d+ %d+ %d+ %d+") do --parse tristr vertex quadruplets as ints
-            local v_itr = v_str:gfind("%d+") --seperate ints
-            local pos, nrm, tex, clr =  
-                3 * tonumber(v_itr()), 
-                3 * tonumber(v_itr()), 
-                2 * tonumber(v_itr()), 
-                4 * tonumber(v_itr()) 
-            --should always these 4, in this order, with these strides. if it isnt, rewrite code
-            --build triangle
-            local vert = {}
-            table.insert( verts, 
-                {
-                logAssert(getNumber(positions,pos),path..": could not find mesh id ["..id.."] vertex position x value at index ["..pos.."]") or 0,--v and positions[v][1] or 0,
-                logAssert(getNumber(positions,pos + 1),path..": could not find mesh id ["..id.."] vertex position y value at index ["..pos.."]") or 0,--v and positions[v][2] or 0,
-                logAssert(getNumber(positions,pos + 2),path..": could not find mesh id ["..id.."] vertex position z value at index ["..pos.."]") or 0,--v and positions[v][3] or 0,
-                
-                logAssert((uFlip and ( 1 - getNumber(texmaps,tex) ) or getNumber(texmaps,tex)),path..": could not find mesh id ["..id.."] vertex texmap S value at index ["..pos.."]") or 0,--do u flip; vt and uvs[vt][1] or 0,
-                logAssert((vFlip and ( 1 - getNumber(texmaps,tex + 1) ) or getNumber(texmaps,tex + 1)),path..": could not find mesh id ["..id.."] vertex texmap T value at index ["..pos.."]") or 0,--do v flip; vt and uvs[vt][2] or 0,
-                
-                logAssert(getNumber(normals, nrm),path..": could not find mesh id ["..id.."] vertex normal x value at index ["..pos.."]") or 0,--vn and normals[vn][1] or 0,
-                logAssert(getNumber(normals, nrm + 1),path..": could not find mesh id ["..id.."] vertex normal y value at index ["..pos.."]") or 0,--vn and normals[vn][2] or 0,S
-                logAssert(getNumber(normals, nrm + 2),path..": could not find mesh id ["..id.."] vertex normal z value at index ["..pos.."]") or 0,--vn and normals[vn][3] or 0,
-                
-                logAssert(getNumber(colors, clr),path..": could not find mesh id ["..id.."] vertex color r value at index ["..pos.."]") or 0,--R,
-                logAssert(getNumber(colors, clr + 1),path..": could not find mesh id ["..id.."] vertex color b value at index ["..pos.."]") or 0,--G,
-                logAssert(getNumber(colors, clr + 2),path..": could not find mesh id ["..id.."] vertex color g value at index ["..pos.."]") or 0,--B,
-                logAssert(getNumber(colors, clr + 3),path..": could not find mesh id ["..id.."] vertex color a value at index ["..pos.."]") or 0,--A,
-                
-                (#verts % 3 == 0) and 1 or 0,--barycentric alpha(#vertices%3 == 0) and 1 or 0 ,
-                (#verts % 3 == 1) and 1 or 0,--barycentric beta(#vertices%3 == 1) and 1 or 0 ,
-                (#verts % 3 == 2) and 1 or 0--barycentric gamma(#vertices%3 == 2) and 1 or 0 ,
-                }
-            )
-            --printt(string.format("done loop (%d)#%d in t:%f",geo_num,i,os.clock()-t))
-            i = i + 1
         end
-        --]]
-        --printt(string.format("done in %d loops, t:%f", loops,os.clock()-t))   
+        printt(vertex_count)
         --create mesh
-        meshes[name] = makeMesh(verts, vertexFormat, usage)
-        meshes[name]:setTexture(texture)
+        local mesh = lg_newMesh(vertexFormat, vertecies, "triangles", usage or USAGE)
+        mesh:setTexture(texture)
+        meshes[name] = mesh --makeMesh(verts, vertexFormat, usage)
         geo_num = geo_num + 1
     end
 
@@ -528,26 +507,16 @@ end
 --stores models after we load them:
 --key = local file path passed in from LoadModel(path)
 K3D_MODEL_CACHE = {}
---stores textures for models after we load them
-K3D_TEXTURE_CACHE = {}
 
 --   Controls the cacheing levels, ordered by speed
 --0: No Cacheing. Models re-loaded from local files every time.
 --1: Clone Mesh. Model data are retrived from cache, meshes are cloned
 --2: Mesh Refrence. Model data are retrived from cache, meshes pointers are copied to model
 
-K3D_CACHE_LEVEL = 1
+K3D_CACHE_LEVEL = Kristal.getLibConfig("k3d", "cache")
 
 --Utils.copyInto that handles love2d usserdata properly, optimized for model cacheing
 --doesnt copy texture info
-local Virtual_Mesh = love.graphics.newMesh(1) -- mesh object used to grab mesh functions
-    local lg_newMesh = love.graphics.newMesh
-    local m_getVertex = Virtual_Mesh.getVertex
-    local m_setVertex = Virtual_Mesh.setVertex
-    local m_getVertexFormat = Virtual_Mesh.getVertexFormat
-    local m_getVertexCount = Virtual_Mesh.getVertexCount
-    local m_setTexture = Virtual_Mesh.setTexture
-    local m_typeOf = Virtual_Mesh.typeOf
 
 local function copyCache(new_tbl, tbl, texture)
     if tbl == nil then return nil end

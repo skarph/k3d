@@ -3,47 +3,43 @@
     "config" :
     {
         //preloads all the models into the cache on mod load. longer startups, shorter model load time if enabled
-        "preload" : true,
-        
-        "model_path" : "assets/models/",
-        "shader_path" : "/assets/scripts/shaders3d",
-        //Please dont touch these if you dont know what your doing. you're gonna corrupt the vertex data
-        
-        //Vertex format passed to `love.graphics.newModel`
-        "VERTEX_FORMAT" :
-        [ 
-            ["VertexPosition", "float", 3],
-            ["VertexTexCoord", "float", 2],
-            ["VertexNormal", "float", 3],
-            ["VertexColor", "byte", 4],
-            
-            ["VertexBarycenter", "float", 3]
-        ],
+        "preload" : false,
+        //   Controls the cacheing levels, ordered by speed
+        //0: No Cacheing. Models re-loaded from local files every time.
+        //1: Clone Mesh. Model data are retrived from cache, meshes are cloned
+        //2: Mesh Refrence. Model data are retrived from cache, meshes pointers are copied to model
+        "cache" : 0,
 
-        //used to construct vertex cdef. should list out VERTEX_FORMAT values sequentially with a string being this field's name
-        //and a lua function returnin values. data is the vertex data at this value, index is the vextex's index in load order
+        "model_path" : "assets/models/",
+        
+        //Please dont touch these if you dont know what your doing. you're gonna corrupt the vertex data
+
+        //the format for the array of vertex values that will get passed to the graphics card
+        //values that have the same label are grouped together internally for love2d
+        //function takes in the raw vertex data (if any), vertex index, and optional uFlip and vFlip parameters
+        //should return the vertex attribute value for the specified position
         "VERTEX_DATAMAP" : 
         [
             //VertexPosition
-            ["x", "function(data, index) return data or 0 end"],
-            ["y", "function(data, index) return data or 0 end"],
-            ["z", "function(data, index) return data or 0 end"],
-            //VertexTexCoord
-            ["u", "function(data, index) return data or 0 end"],
-            ["v", "function(data, index) return data or 0 end"],
+            ["VertexPosition", "float", "x", "function(data, index) return data or 0 end"], //x
+            ["VertexPosition", "float", "y", "function(data, index) return data or 0 end"], //y
+            ["VertexPosition", "float", "z", "function(data, index) return data or 0 end"], //z
             //VertexNormal
-            ["nx", "function(data, index) return data or 0 end"],
-            ["ny", "function(data, index) return data or 0 end"],
-            ["nz", "function(data, index) return data or 0 end"],
+            ["VertexNormal", "float", "nx", "function(data, index) return data or 0 end"], //nx
+            ["VertexNormal", "float", "ny", "function(data, index) return data or 0 end"], //ny
+            ["VertexNormal", "float", "nz", "function(data, index) return data or 0 end"], //nz
+            //VertexTexCoord
+            ["VertexTexCoord", "float", "u", "function(data, index, uFlip, vFlip) data = data or 0; if uFlip then data = 1 - data end; return data end"], //u
+            ["VertexTexCoord", "float", "v", "function(data, index, uFlip, vFlip) data = data or 0; if vFlip then data = 1 - data end; return data end"], //v
             //VertexColor
-            ["r", "function(data, index) return (data or 0)*255 end"],
-            ["g", "function(data, index) return (data or 0)*255 end"],
-            ["b", "function(data, index) return (data or 0)*255 end"],
-            ["a", "function(data, index) return (data or 0)*255 end"],
+            ["VertexColor", "byte", "r", "function(data, index) return (data or 1)*255 end"], //r
+            ["VertexColor", "byte", "g", "function(data, index) return (data or 1)*255 end"], //g
+            ["VertexColor", "byte", "b", "function(data, index) return (data or 1)*255 end"], //b
+            ["VertexColor", "byte", "a", "function(data, index) return (data or 1)*255 end"]//, //a
             //VertexBarycenter
-            ["ba", "function(data, index) return data or ( (index%3 == 0) and 1 or 0 ) end"],
-            ["bb", "function(data, index) return data or ( (index%3 == 1) and 1 or 0 ) end"],
-            ["bg", "function(data, index) return data or ( (index%3 == 2) and 1 or 0 ) end"]
+            //["VertexBarycenter", "float", "ba", "function(data, index) return data or ( (index%3 == 0) and 1 or 0 ) end"], //alpha
+            //["VertexBarycenter", "float", "bb", "function(data, index) return data or ( (index%3 == 1) and 1 or 0 ) end"], //beta
+            //["VertexBarycenter", "float", "bg", "function(data, index) return data or ( (index%3 == 2) and 1 or 0 ) end"]  //gamma
         ],
 
 
