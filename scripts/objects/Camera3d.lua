@@ -5,15 +5,10 @@
 ]]
 printt("Loading Camera3d")
 --dependencies
-local newMatrix = libRequire("k3d", "scripts.globals.Matrix4x4")
+local Matrix4x4 = Matrix4x4
 
-local Vector3 = libRequire("k3d", "scripts.globals.Vector3")
-local v_sub = Vector3.sub
-local v_normalize = Vector3.normalize
-local v_cross = Vector3.cross
-
-local Quaternion = libRequire("k3d", "scripts.globals.Quaternion")
 local q_rotate = Quaternion.rotate
+
 local Camera3d, super = Class("Object3d") --TODO: change to ThreeDee, fix canvas to have models render directly?
 
 --self, path,texture, tx,ty,tz, sx,sy,sz, qr,qi,qj,qk, width, height, depth
@@ -59,7 +54,7 @@ function Camera3d.init(self, layer,  tx,ty,tz, sx,sy,sz, qr,qi,qj,qk, fov, nearC
     
     self.draw_models = {}
 
-    self.projectionMatrix = newMatrix()
+    self.projectionMatrix = Matrix4x4()
     self:projective()
     --self:updateMatrix()
 

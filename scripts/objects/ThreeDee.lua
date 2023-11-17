@@ -8,18 +8,16 @@
 ]]
 --dependencies
 printt("Loading ThreeDee")
-local newMatrix = libRequire("k3d", "scripts.globals.Matrix4x4")
+local Matrix4x4 = Matrix4x4
 
-local Vector3 = libRequire("k3d", "scripts.globals.Vector3")
 local v_sub = Vector3.sub
 local v_normalize = Vector3.normalize
-local v_cross = Vector3.cross
 
-local Quaternion = libRequire("k3d", "scripts.globals.Quaternion")
 local q_from_aa = Quaternion.fromaa
 local q_from_ea = Quaternion.fromea
 local q_mul_C = Quaternion.qmulc
 local q_rotate = Quaternion.rotate
+
 local ThreeDee = Class()
 
 function ThreeDee:init(tx, ty, tz, sx, sy, sz, qr, qi, qj, qk, width, height, depth)
@@ -58,7 +56,7 @@ function ThreeDee:init(tx, ty, tz, sx, sy, sz, qr, qi, qj, qk, width, height, de
     self.rotation_j = qj or 0
     self.rotation_k = qk or 0 
     --transformation matrix.
-    self.matrix = newMatrix()
+    self.matrix = Matrix4x4()
     self:updateMatrix()
     --[[
     self.flip_x = false

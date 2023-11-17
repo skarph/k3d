@@ -1,6 +1,4 @@
 --dependencies
-local loadModel = libRequire("k3d", "scripts.globals.LoadModel")
-local Quaternion = libRequire("k3d", "scripts.globals.Quaternion")
 local qfromea = Quaternion.fromea
 
 local Model, super = Class("Object3d")
@@ -50,9 +48,9 @@ function Model.init(self, path,texture, tx,ty,tz, sx,sy,sz, qr,qi,qj,qk, width, 
 
     self.visible = true
 
-    self.meshes, self.tree, self.animations = loadModel(path, texture)
+    self.meshes, self.tree, self.animations = LoadModel(path, texture)
 
-    self.vertexFormat = loadModel.VERTEX_FORMAT
+    self.vertexFormat = LoadModel.VERTEX_FORMAT
 
     self.shader = SHADER_3D --SIMPLE_SHADER
     --printt(self)
