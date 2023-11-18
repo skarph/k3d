@@ -1,3 +1,7 @@
+-----------------------------------------------
+--!! UNSAFE FFI CODE. PROCEED WITH CAUTION !!--
+-----------------------------------------------
+
 -- originally written by groverbuger for g3d, see LICENSE
 -- september 2021, groveburger; oct 2023 skarph
 -- MIT license
@@ -22,12 +26,11 @@ local Virtual_Mesh = love.graphics.newMesh(1) -- mesh object used to grab mesh f
     local m_getVertexCount = Virtual_Mesh.getVertexCount
     local m_setTexture = Virtual_Mesh.setTexture
     local m_typeOf = Virtual_Mesh.typeOf
-    local m_setVertexAttribute = Virtual_Mesh.setVertexAttribute
 
 local loadModel = {} 
 setmetatable(loadModel, loadModel)
 
---used to construct vertex cdef. should list out VERTEclX_FORMAT with a string being this field's name
+--used to construct vertex cdef and VERTEX_FORMAT. should list out VERTEX_FORMAT with a string being this field's name
 -- and a function returnin values. data is the vertex data at this value, index is the vextex's index in load order
 local VERTEX_DATAMAP = Kristal.getLibConfig("k3d", "VERTEX_DATAMAP")
 --used by love2d
@@ -37,13 +40,14 @@ local VERTEX_FORMAT = {}
 --TODO: this is a crime. why am i doing this. please dear god come up with something better. is the speed increase even worth it at this point?
 local _alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 local SESSION_ID = ""
-for i=1, 32 do
+for _=1, 32 do
     SESSION_ID = SESSION_ID .. _alphabet[ love.math.random(1,#_alphabet) ]
 end
-local VERTEX_C_IDENTIFIER = "struct vertex"..SESSION_ID
+
+local VERTEX_C_IDENTIFIER = "struct vertex__"..SESSION_ID
 local VERTEX_C_IDENTIFIER_PTR = VERTEX_C_IDENTIFIER.."*"
 printt("SESSION_UUID:", SESSION_ID)
-Kristal.Console:log( string.format("SESSION_ID: %s", SESSION_ID) )
+Kristal.Console:log( string.format("[k3d] SESSION_ID: %s", SESSION_ID) )
 
 --load functions from string
 for i, data_map in ipairs(VERTEX_DATAMAP) do
@@ -79,11 +83,6 @@ local CTYPE = {
     byte = "uint8_t",
     unorm16 = "uint16_t" --TOOD: check this
 }
--- the fallback function if ffi was not loaded
-local makeMesh = function(verts)
-    return verts
-end
-
 -- makes models use less memory when loaded in ram
 -- by storing the vertex data in an array of vertix structs instead of lua tables
 -- requires ffi
@@ -110,24 +109,6 @@ if success then
     cdef = cdef.."}"
     ffi.cdef(cdef)
     printt(cdef)
-    --error(cdef)
-    makeMesh = function(verts, vertexFormat, usage)
-        local data = love.data.newByteData(ffi.sizeof(VERTEX_C_IDENTIFIER) * #verts)
-        local datapointer = ffi.cast(VERTEX_C_IDENTIFIER_PTR, data:getFFIPointer())
-
-        for i, vert in ipairs(verts) do
-            local dataindex = i - 1
-            --fill out vertex data
-            for j, datamap in ipairs(VERTEX_DATAMAP) do
-                datapointer[dataindex][datamap[1]] = datamap[2](vert[j],dataindex)
-            end
-        end
-
-        --self.mesh:release()
-        local mesh = love.graphics.newMesh(vertexFormat, data, "triangles", usage or "dynamic")
-        return mesh
-    end
-
 else
     error("Unable to load FFI! this should never happen...")
 end
@@ -303,7 +284,6 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
         local vertex_index = 0
 
         local asbyte = string.byte
-        local t_insert = table.insert
         local data_count = 0
         local v_lookup = {}
         
@@ -358,7 +338,6 @@ function loadModel.loadcollada(path, texture, uFlip, vFlip, vertexFormat, usage)
             end
 
         end
-        printt(vertex_count)
         --create mesh
         local mesh = lg_newMesh(vertexFormat, vertecies, "triangles", usage or USAGE)
         mesh:setTexture(texture)
@@ -419,37 +398,42 @@ end
 -- give path of file
 -- returns a lua table representation
 function loadModel.loadobj(path, texture, uFlip, vFlip, vertexFormat, usage)
-    local positions, uvs, normals = {}, {}, {}
+    local attributes  = {{}, {}, {}, {}} --positions, normals, uvs
     local result = {}
     
+    local t_insert = table.insert
+    local ld_newByteData = love.data.newByteData
+    local ffi_cast = ffi.cast
+    local ffi_new = ffi.new
+    local vertex_struct_size = ffi.sizeof(VERTEX_C_IDENTIFIER)
+    
+    local v_lookup = {-808135,-8008235,-8008335}
+    local vertex_index = 0
     -- go line by line through the file
     for line in love.filesystem.lines(path) do
         local words = {}
 
         -- split the line into words
         for word in line:gmatch "([^%s]+)" do
-            table.insert(words, word)
+            t_insert(words, word)
         end
 
         local firstWord = words[1]
 
         if firstWord == "v" then
             -- if the first word in this line is a "v", then this defines a vertex's position
-
-            table.insert(positions, {tonumber(words[2]), tonumber(words[3]), tonumber(words[4])})
-        elseif firstWord == "vt" then
-            -- if the first word in this line is a "vt", then this defines a texture coordinate
-
-            local u, v = tonumber(words[2]), tonumber(words[3])
-
-            -- optionally flip these texture coordinates
-            if uFlip then u = 1 - u end
-            if vFlip then v = 1 - v end
-
-            table.insert(uvs, {u, v})
+            t_insert(attributes[1], tonumber(words[2]))
+            t_insert(attributes[1], tonumber(words[3]))
+            t_insert(attributes[1], tonumber(words[4]))
         elseif firstWord == "vn" then
             -- if the first word in this line is a "vn", then this defines a vertex normal
-            table.insert(normals, {tonumber(words[2]), tonumber(words[3]), tonumber(words[4])})
+            t_insert(attributes[2], tonumber(words[2]))
+            t_insert(attributes[2], tonumber(words[3]))
+            t_insert(attributes[2], tonumber(words[4]))
+        elseif firstWord == "vt" then
+            -- if the first word in this line is a "vt", then this defines a texture coordinate
+            t_insert(attributes[3], tonumber(words[2]))
+            t_insert(attributes[3], tonumber(words[3]))
         elseif firstWord == "f" then
 
             -- if the first word in this line is a "f", then this is a face
@@ -457,27 +441,36 @@ function loadModel.loadobj(path, texture, uFlip, vFlip, vertexFormat, usage)
             -- the arguments a point definition takes are vertex, vertex texture, vertex normal in that order
 
             local vertices = {}
+            
             for i = 2, #words do
 
+                 --v is VertexPosition (usually index 1),vt is Vertex Texcord (usually index 3), and vn is vertex normal (usually index 2)
                 local v, vt, vn = words[i]:match "(%d*)/(%d*)/(%d*)"
-                v, vt, vn = tonumber(v), tonumber(vt), tonumber(vn)
-                table.insert(vertices, {
-                    v and positions[v][1] or 0,
-                    v and positions[v][2] or 0,
-                    v and positions[v][3] or 0,
-                    vt and uvs[vt][1] or 0,
-                    vt and uvs[vt][2] or 0,
-                    vn and normals[vn][1] or 0,
-                    vn and normals[vn][2] or 0,
-                    vn and normals[vn][3] or 0,
-                    1,
-                    1,
-                    1,
-                    1,
-                    (#vertices%3 == 0) and 1 or 0 ,
-                    (#vertices%3 == 1) and 1 or 0 ,
-                    (#vertices%3 == 2) and 1 or 0 ,
-                })
+                v_lookup[1], v_lookup[2], v_lookup[3] = tonumber(v), tonumber(vn), tonumber(vt)
+                --we cant know the amount of vertecies before hand in an obj file, so we need to allocate these on the fly
+                local vertex = ffi_new(VERTEX_C_IDENTIFIER)
+                local attribute_index = 1
+                for format_index=1, #VERTEX_FORMAT  do
+                    
+                    local attribute_length = VERTEX_FORMAT[format_index][3]
+
+                    local lookup = v_lookup[format_index]
+                    for attribute_offset=1, attribute_length do
+                        local userFunc = VERTEX_DATAMAP[attribute_index][4]
+                        local label = VERTEX_DATAMAP[attribute_index][3]
+                        
+                        if(lookup) then
+                            vertex[label] = userFunc( attributes[format_index][attribute_length * (lookup - 1) + attribute_offset] , vertex_index, uFlip, vFlip ) --subtract 1 because attribtue_offset is 1 indexed and handles it for us
+                        else
+                            vertex[label] = userFunc( nil , vertex_index, uFlip, vFlip )
+                        end
+                        
+                        attribute_index = attribute_index + 1
+                    end
+
+                end
+                t_insert(vertices, vertex)
+                vertex_index = vertex_index + 1
             end
 
             -- triangulate the face if it's not already a triangle
@@ -487,27 +480,57 @@ function loadModel.loadobj(path, texture, uFlip, vFlip, vertexFormat, usage)
 
                 -- connect the central vertex to each of the other vertices to create triangles
                 for i = 2, #vertices - 1 do
-                    table.insert(result, centralVertex)
-                    table.insert(result, vertices[i])
-                    table.insert(result, vertices[i + 1])
+                    t_insert(result, centralVertex)
+                    t_insert(result, vertices[i])
+                    t_insert(result, vertices[i + 1])
                 end
             else
                 for i = 1, #vertices do
-                    table.insert(result, vertices[i])
+                    t_insert(result, vertices[i])
                 end
             end
 
         end
     end
-    local mesh = makeMesh(result, vertexFormat, usage)
+
+    --inling and moving this function down here since this is the only place it's used
+    local data = ld_newByteData(vertex_struct_size * #result)
+    local datapointer = ffi_cast(VERTEX_C_IDENTIFIER_PTR, data:getFFIPointer())
+
+    for i, vert in ipairs(result) do
+        datapointer[i-1] = vert
+    end
+
+    local mesh = love.graphics.newMesh(vertexFormat, data, "triangles", usage or "dynamic")
     mesh:setTexture(texture)
-    return {mesh}, {}, {} --no scene, no animation
+    
+    local scene = {
+        [1] = {
+            parent = "Scene",
+            children = {},
+            scene_transform = newMatrix(),
+            local_transform = newMatrix(),
+            working_transform = newMatrix(),
+            mesh_url = 1
+        },
+
+        Scene = {
+            parent = nil,
+            children = {1},
+            scene_transform = newMatrix(),
+            local_transform = newMatrix(),
+            working_transform = newMatrix(),
+            mesh_url = nil
+        }
+    }
+    return {mesh}, scene, {} --default scene, no animation
 end
 
 --stores models after we load them:
 --key = local file path passed in from LoadModel(path)
 K3D_MODEL_CACHE = {}
 
+K3D_TEXTURE_CACHE = {}
 --   Controls the cacheing levels, ordered by speed
 --0: No Cacheing. Models re-loaded from local files every time.
 --1: Clone Mesh. Model data are retrived from cache, meshes are cloned
