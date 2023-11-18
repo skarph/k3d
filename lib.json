@@ -8,7 +8,7 @@
         //0: No Cacheing. Models re-loaded from local files every time.
         //1: Clone Mesh. Model data are retrived from cache, meshes are cloned
         //2: Mesh Refrence. Model data are retrived from cache, meshes pointers are copied to model
-        "cache" : 0,
+        "cache" : 1,
 
         "model_path" : "assets/models/",
         
